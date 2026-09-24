@@ -227,6 +227,57 @@ class LoomClient:
         )
         return (data.get("getVideoTranscodedUrl") or {}).get("url")
 
+    async def get_cdn_url(self, video_id: str, mime: str = "DASH") -> str | None:
+        """Get the signed raw CDN URL for a video (DASH/M3U8 manifest or MP4).
+
+        Unlike get_download_url, this works even when MP4 export is disabled.
+        """
+        if mime not in ("DASH", "M3U8", "MP4"):
+            raise ValueError("mime must be one of DASH, M3U8, MP4")
+        data = await self.graphql(
+            "GetVideoCdnUrl",
+            """query GetVideoCdnUrl($id: ID!, $password: String) {
+              video: getVideo(id: $id, password: $password) {
+                ... on RegularUserVideo {
+                  nullableRawCdnUrl(acceptableMimes: [%s], password: $password) {
+                    url
+                  }
+                }
+              }
+            }"""
+            % mime,
+            {"id": video_id, "password": None},
+        )
+        video = data.get("video") or {}
+        return (video.get("nullableRawCdnUrl") or {}).get("url")
+
+    async def download_media(
+        self,
+        video_id: str,
+        out_path: str | Path,
+        kind: str = "audio",
+        quality: str = "best",
+        start: float | None = None,
+        end: float | None = None,
+    ) -> Path:
+        """Download a video's audio or video track to a local file via DASH."""
+        from loom_mcp import media
+
+        url = await self.get_cdn_url(video_id, "DASH")
+        if not url:
+            raise media.MediaError(
+                "No DASH manifest available for this video (no access, or still processing)."
+            )
+        return await media.download_media(
+            self._http,
+            url,
+            out_path,
+            kind=kind,
+            quality=quality,
+            start=start,
+            end=end,
+        )
+
     async def get_chapters(self, video_id: str) -> dict | None:
         data = await self.graphql(
             "FetchChapters",

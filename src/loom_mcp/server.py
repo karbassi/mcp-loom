@@ -397,6 +397,53 @@ async def get_download_url(
 
 @mcp.tool(
     tags={"read"},
+    timeout=600.0,
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+    },
+)
+async def download_media(
+    ctx: Context,
+    video_id: Annotated[str, "The Loom video ID"],
+    out_path: Annotated[
+        str,
+        "Local output path; the extension sets the container (.wav/.m4a/.mp3 for audio, .mp4/.mkv/.webm for video)",
+    ],
+    kind: Annotated[str, "'audio' (default) or 'video'"] = "audio",
+    quality: Annotated[
+        str,
+        "Video only: 'best' (highest bitrate, e.g. 1080p) or 'small' (lowest, e.g. 720p)",
+    ] = "best",
+    start: Annotated[float | None, "Trim start, in seconds from the beginning"] = None,
+    end: Annotated[float | None, "Trim end, in seconds from the beginning"] = None,
+) -> str:
+    """Download a Loom video's audio or video to a local file. Works even when MP4 export is disabled (e.g. notetaker recordings where get_download_url returns nothing). Optionally trim to a [start, end] range in seconds; only the needed segments are fetched. .mp4/.wav/.m4a/.mp3 outputs are re-encoded for frame-accurate trims; .webm/.mkv are stream-copied (fast, but trim points snap to keyframes). Requires ffmpeg on PATH."""
+    if kind not in ("audio", "video"):
+        raise ToolError("kind must be 'audio' or 'video'")
+    if quality not in ("best", "small"):
+        raise ToolError("quality must be 'best' or 'small'")
+    if start is not None and start < 0:
+        raise ToolError("start must be >= 0")
+    if start is not None and end is not None and end <= start:
+        raise ToolError("end must be greater than start")
+    client = _get_client(ctx)
+    path = await _call(
+        client.download_media(
+            _id(video_id, "video ID"),
+            out_path,
+            kind=kind,
+            quality=quality,
+            start=start,
+            end=end,
+        )
+    )
+    return f"Saved {kind} to {path}"
+
+
+@mcp.tool(
+    tags={"read"},
     timeout=30.0,
     annotations={
         "readOnlyHint": True,
