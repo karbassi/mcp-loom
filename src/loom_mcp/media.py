@@ -352,22 +352,31 @@ async def download_media(
     v_tmp = workdir / "video.webm"
 
     sem = asyncio.Semaphore(_MAX_CONCURRENCY)
-    tasks = []
+    tracks: list[tuple[dict, list[int], Path]] = []
     a_off = 0.0
     if audio is not None:
         a_idx, a_off = select_segments(audio, start, end)
         if not a_idx:
             raise MediaError("Requested time range is outside the recording")
-        tasks.append(_download_track(http, base, query, audio, a_idx, a_tmp, sem))
+        tracks.append((audio, a_idx, a_tmp))
     v_off = 0.0
     if video is not None:
         v_idx, v_off = select_segments(video, start, end)
         if not v_idx:
             raise MediaError("Requested time range is outside the recording")
-        tasks.append(_download_track(http, base, query, video, v_idx, v_tmp, sem))
+        tracks.append((video, v_idx, v_tmp))
 
     try:
-        await asyncio.gather(*tasks)
+        # TaskGroup cancels and awaits the sibling track when one fails, so no
+        # download keeps writing into workdir after we start cleaning it up.
+        try:
+            async with asyncio.TaskGroup() as tg:
+                for rep, idx, dest in tracks:
+                    tg.create_task(
+                        _download_track(http, base, query, rep, idx, dest, sem)
+                    )
+        except* MediaError as eg:
+            raise eg.exceptions[0] from None
         suffix = out_path.suffix.lower()
         if kind == "audio":
             # Loom serves Opus; keep the original bits when the container allows.

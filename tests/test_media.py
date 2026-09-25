@@ -356,3 +356,37 @@ def test_run_ffmpeg_is_async_and_reports_failure(tmp_path: Path):
         assert ticks > 0
 
     asyncio.run(run())
+
+
+def test_failed_track_cancels_sibling_download(tmp_path: Path):
+    """If the audio track 403s, the in-flight video track must be cancelled."""
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg required for download_media preflight")
+    base, query = _manifest_base(MANIFEST_URL)
+    cancelled = asyncio.Event()
+
+    class HangingVideoHTTP(_FakeHTTP):
+        async def get(self, url, headers=None):
+            if "abc123-video" in url:
+                try:
+                    await asyncio.Event().wait()  # never completes
+                except asyncio.CancelledError:
+                    cancelled.set()
+                    raise
+            return await super().get(url, headers)
+
+    files = {"playlistmultibitrate.mpd": MPD.encode()}  # audio init -> 403
+    http = HangingVideoHTTP(files, query)
+
+    async def run():
+        with pytest.raises(MediaError, match="HTTP 403"):
+            await asyncio.wait_for(
+                media.download_media(
+                    http, MANIFEST_URL, tmp_path / "x.mp4", kind="video"
+                ),
+                timeout=5,
+            )
+        assert cancelled.is_set()
+
+    asyncio.run(run())
+    assert list(tmp_path.iterdir()) == []
