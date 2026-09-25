@@ -17,6 +17,7 @@ import asyncio
 import re
 import shutil
 import subprocess
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -324,10 +325,13 @@ async def download_media(
 
     out_path = Path(out_path).expanduser().resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = Path(tmp_root).expanduser().resolve() if tmp_root else out_path.parent
-    tmp.mkdir(parents=True, exist_ok=True)
-    a_tmp = tmp / f".{out_path.stem}.audio.webm"
-    v_tmp = tmp / f".{out_path.stem}.video.webm"
+    tmp_parent = Path(tmp_root).expanduser().resolve() if tmp_root else out_path.parent
+    tmp_parent.mkdir(parents=True, exist_ok=True)
+    # Unique per call so concurrent downloads (e.g. foo.mp4 and foo.m4a, or the
+    # same path twice) never share or delete each other's intermediates.
+    workdir = Path(tempfile.mkdtemp(prefix=".loom-media-", dir=tmp_parent))
+    a_tmp = workdir / "audio.webm"
+    v_tmp = workdir / "video.webm"
 
     sem = asyncio.Semaphore(_MAX_CONCURRENCY)
     tasks = []
@@ -372,6 +376,5 @@ async def download_media(
                 maps += ["-map", "1:a:0"]
             _run_ffmpeg([*args, *maps, *codec, "-shortest", str(out_path)])
     finally:
-        a_tmp.unlink(missing_ok=True)
-        v_tmp.unlink(missing_ok=True)
+        shutil.rmtree(workdir, ignore_errors=True)
     return out_path

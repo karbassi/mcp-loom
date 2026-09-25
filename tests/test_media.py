@@ -1,6 +1,8 @@
 """Unit tests for loom_mcp.media (no network, no ffmpeg)."""
 
 import asyncio
+import shutil
+import tempfile
 from pathlib import Path
 
 import httpx
@@ -264,3 +266,60 @@ def test_parse_mpd_negative_repeat_uses_media_presentation_duration():
         (8000, 2000),
     ]
     assert duration_seconds(rep) == 10.0
+
+
+def test_failed_download_leaves_no_workdir(tmp_path: Path):
+    """Segment 403 -> MediaError, and the per-call temp dir is removed."""
+    base, query = _manifest_base(MANIFEST_URL)
+    files = {"playlistmultibitrate.mpd": MPD.encode()}  # no segments -> 403
+    http = _FakeHTTP(files, query)
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg required for download_media preflight")
+    with pytest.raises(MediaError, match="HTTP 403"):
+        asyncio.run(media.download_media(http, MANIFEST_URL, tmp_path / "x.opus"))
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_concurrent_downloads_use_distinct_workdirs(tmp_path: Path, monkeypatch):
+    """Two in-flight calls to the same out_path must not share intermediates."""
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg required for download_media preflight")
+    base, query = _manifest_base(MANIFEST_URL)
+    seen: list[Path] = []
+    gate = asyncio.Event()
+
+    class SlowHTTP(_FakeHTTP):
+        async def get(self, url, headers=None):
+            if url.endswith(f"abc123-audio-init.webm?{query}"):
+                seen.append(Path(url))
+                await gate.wait()
+            return await super().get(url, headers)
+
+    real_mkdtemp = tempfile.mkdtemp
+    dirs: list[str] = []
+
+    def spy_mkdtemp(*a, **kw):
+        d = real_mkdtemp(*a, **kw)
+        dirs.append(d)
+        return d
+
+    monkeypatch.setattr(media.tempfile, "mkdtemp", spy_mkdtemp)
+    files = {"playlistmultibitrate.mpd": MPD.encode()}
+    http = SlowHTTP(files, query)
+
+    async def run():
+        t1 = asyncio.create_task(
+            media.download_media(http, MANIFEST_URL, tmp_path / "x.opus")
+        )
+        t2 = asyncio.create_task(
+            media.download_media(http, MANIFEST_URL, tmp_path / "x.opus")
+        )
+        while len(seen) < 2:
+            await asyncio.sleep(0.01)
+        assert len(set(dirs)) == 2
+        gate.set()
+        results = await asyncio.gather(t1, t2, return_exceptions=True)
+        assert all(isinstance(r, MediaError) for r in results)  # 403 on init
+
+    asyncio.run(run())
+    assert list(tmp_path.iterdir()) == []
