@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `download_media` tool: download a video's audio or video to a local file via Loom's signed DASH manifest, including notetaker recordings where MP4 export is disabled. Supports `start`/`end` trimming (only the overlapping segments are fetched) and `quality` selection for video. `.opus`/`.webm`/`.mkv` outputs keep Loom's original Opus/VP9 streams without re-encoding; other extensions are transcoded. Requires `ffmpeg` on PATH.
+- `LoomClient.get_cdn_url` for the raw signed CDN URL (`DASH`, `M3U8`, or `MP4`)
 - GitHub Actions CI workflow (lint, format, test) triggered on push and PRs
 - PyPI publish workflow using OIDC trusted publishing, triggered on version tags
 - mise tasks: `install`, `lint`, `format`, `test`, `build`

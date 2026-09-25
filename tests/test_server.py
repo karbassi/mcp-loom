@@ -78,6 +78,7 @@ CREATE_TOOLS = {
 }
 
 IDEMPOTENT_WRITE_TOOLS = {
+    "download_media",  # writes a local file, not Loom data
     "approve_task",
     "respond_to_task",
     "toggle_following",
@@ -111,7 +112,7 @@ async def test_all_tools_registered(client):
 @pytest.mark.anyio
 async def test_tool_count(client):
     tools = await client.list_tools()
-    assert len(tools) == 60
+    assert len(tools) == 61
 
 
 @pytest.mark.anyio

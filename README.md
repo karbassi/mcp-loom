@@ -149,7 +149,7 @@ Or reference it from any MCP client:
 
 ## Tools
 
-### Read (30 tools)
+### Read (31 tools)
 
 Tools marked with **Save** accept an optional `save_dir` parameter — see [Saving to disk](#saving-to-disk).
 
@@ -172,6 +172,7 @@ Tools marked with **Save** accept an optional `save_dir` parameter — see [Savi
 | `get_meeting_notes` | Confluence meeting notes URL | |
 | `get_confluence_pages` | Linked Confluence pages | |
 | `get_download_url` | Signed MP4 download URL | |
+| `download_media` | Download audio or video to a local file (works when MP4 export is disabled; optional `start`/`end` trim; needs `ffmpeg`) | `out_path` |
 | `get_video_details` | All-in-one: metadata + transcript + chapters + summary + comments + tasks | `details.md` + all above |
 | `list_folders` | List your folders | |
 | `list_spaces` | List your workspaces | |
