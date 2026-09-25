@@ -14,6 +14,7 @@ Segment and manifest fetches need no cookie; the URL signature is the credential
 """
 
 import asyncio
+import re
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
@@ -41,6 +42,54 @@ def _tag(name: str) -> str:
     return f"{{{_DASH_NS}}}{name}"
 
 
+_ISO_DURATION_RE = re.compile(
+    r"^P(?:(?P<d>[\d.]+)D)?"
+    r"(?:T(?:(?P<h>[\d.]+)H)?(?:(?P<m>[\d.]+)M)?(?:(?P<s>[\d.]+)S)?)?$"
+)
+
+
+def _parse_iso_duration(value: str | None) -> float | None:
+    """Parse an ISO 8601 duration like ``PT1H2M3.5S`` into seconds."""
+    if not value:
+        return None
+    m = _ISO_DURATION_RE.match(value.strip())
+    if not m or not any(m.groupdict().values()):
+        return None
+    parts = {k: float(v) if v else 0.0 for k, v in m.groupdict().items()}
+    return parts["d"] * 86400 + parts["h"] * 3600 + parts["m"] * 60 + parts["s"]
+
+
+def _expand_timeline(
+    entries: list[tuple[int | None, int, int]], period_end: int | None
+) -> list[tuple[int, int]]:
+    """Expand ``(t, d, r)`` SegmentTimeline entries into ``(t, d)`` segments.
+
+    ``r`` is the number of *additional* repeats. A negative ``r`` means repeat
+    until the next entry's ``t`` (or the period end for the last entry).
+    """
+    timeline: list[tuple[int, int]] = []
+    t = 0
+    for i, (t_attr, d, r) in enumerate(entries):
+        if t_attr is not None:
+            t = t_attr
+        if r < 0:
+            if i + 1 < len(entries) and entries[i + 1][0] is not None:
+                until = entries[i + 1][0]
+            elif period_end is not None:
+                until = period_end
+            else:
+                raise MediaError(
+                    "SegmentTimeline uses r=-1 without a following t or period duration"
+                )
+            count = max(0, (until - t + d - 1) // d)  # type: ignore[operator]
+        else:
+            count = r + 1
+        for _ in range(count):
+            timeline.append((t, d))
+            t += d
+    return timeline
+
+
 def _manifest_base(url: str) -> tuple[str, str]:
     """Split a signed manifest URL into (directory base URL, signed query string)."""
     p = urlsplit(url)
@@ -56,45 +105,54 @@ def parse_mpd(xml_text: str) -> list[dict]:
     ``(t, d)`` tuples in timescale units with ``r`` repeats expanded.
     """
     root = ET.fromstring(xml_text)
+    mpd_duration = _parse_iso_duration(root.get("mediaPresentationDuration"))
     reps: list[dict] = []
-    for aset in root.iter(_tag("AdaptationSet")):
-        ctype = aset.get("contentType")
-        for rep in aset.findall(_tag("Representation")):
-            st = rep.find(_tag("SegmentTemplate"))
-            if st is None:
-                st = aset.find(_tag("SegmentTemplate"))
-            if st is None:
-                continue
-            timescale = int(st.get("timescale", "1"))
-            timeline: list[tuple[int, int]] = []
-            t = 0
-            tl = st.find(_tag("SegmentTimeline"))
-            if tl is not None:
-                for s in tl.findall(_tag("S")):
-                    if s.get("t") is not None:
-                        t = int(s.get("t"))  # type: ignore[arg-type]
-                    d = int(s.get("d"))  # type: ignore[arg-type]
-                    for _ in range(int(s.get("r", "0")) + 1):
-                        timeline.append((t, d))
-                        t += d
-            if ctype is None:
-                mime = rep.get("mimeType") or aset.get("mimeType") or ""
-                ctype = mime.split("/", 1)[0] or None
-            reps.append(
-                {
-                    "contentType": ctype,
-                    "id": rep.get("id"),
-                    "bandwidth": int(rep.get("bandwidth", "0")),
-                    "codecs": rep.get("codecs"),
-                    "width": rep.get("width"),
-                    "height": rep.get("height"),
-                    "init": st.get("initialization"),
-                    "media": st.get("media"),
-                    "startNumber": int(st.get("startNumber", "0")),
-                    "timescale": timescale,
-                    "timeline": timeline,
-                }
-            )
+    for period in root.iter(_tag("Period")):
+        period_duration = _parse_iso_duration(period.get("duration")) or mpd_duration
+        for aset in period.iter(_tag("AdaptationSet")):
+            ctype = aset.get("contentType")
+            for rep in aset.findall(_tag("Representation")):
+                st = rep.find(_tag("SegmentTemplate"))
+                if st is None:
+                    st = aset.find(_tag("SegmentTemplate"))
+                if st is None:
+                    continue
+                timescale = int(st.get("timescale", "1"))
+                pto = int(st.get("presentationTimeOffset", "0"))
+                # Timeline times are period-relative, offset by presentationTimeOffset.
+                period_end: int | None = None
+                if period_duration is not None:
+                    period_end = pto + int(round(period_duration * timescale))
+                timeline: list[tuple[int, int]] = []
+                tl = st.find(_tag("SegmentTimeline"))
+                if tl is not None:
+                    entries = [
+                        (
+                            int(s.get("t")) if s.get("t") is not None else None,  # type: ignore[arg-type]
+                            int(s.get("d")),  # type: ignore[arg-type]
+                            int(s.get("r", "0")),
+                        )
+                        for s in tl.findall(_tag("S"))
+                    ]
+                    timeline = _expand_timeline(entries, period_end)
+                if ctype is None:
+                    mime = rep.get("mimeType") or aset.get("mimeType") or ""
+                    ctype = mime.split("/", 1)[0] or None
+                reps.append(
+                    {
+                        "contentType": ctype,
+                        "id": rep.get("id"),
+                        "bandwidth": int(rep.get("bandwidth", "0")),
+                        "codecs": rep.get("codecs"),
+                        "width": rep.get("width"),
+                        "height": rep.get("height"),
+                        "init": st.get("initialization"),
+                        "media": st.get("media"),
+                        "startNumber": int(st.get("startNumber", "0")),
+                        "timescale": timescale,
+                        "timeline": timeline,
+                    }
+                )
     return reps
 
 

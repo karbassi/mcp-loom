@@ -12,6 +12,8 @@ from loom_mcp.media import (
     COPY_AUDIO_SUFFIXES,
     COPY_VIDEO_SUFFIXES,
     _expand,
+    _expand_timeline,
+    _parse_iso_duration,
     _manifest_base,
     _trim_args,
     duration_seconds,
@@ -218,3 +220,47 @@ def test_copy_suffixes_are_opus_vp9_capable():
     assert {".opus", ".webm"} <= COPY_AUDIO_SUFFIXES
     assert ".wav" not in COPY_AUDIO_SUFFIXES and ".m4a" not in COPY_AUDIO_SUFFIXES
     assert COPY_VIDEO_SUFFIXES == {".webm", ".mkv"}
+
+
+def test_parse_iso_duration():
+    assert _parse_iso_duration("PT10S") == 10.0
+    assert _parse_iso_duration("PT1H2M3.5S") == 3723.5
+    assert _parse_iso_duration("P1DT1S") == 86401.0
+    assert _parse_iso_duration(None) is None
+    assert _parse_iso_duration("garbage") is None
+
+
+def test_expand_timeline_negative_repeat_until_next_entry():
+    entries = [(0, 2, -1), (10, 3, 0)]
+    assert _expand_timeline(entries, None) == [
+        (0, 2),
+        (2, 2),
+        (4, 2),
+        (6, 2),
+        (8, 2),
+        (10, 3),
+    ]
+
+
+def test_expand_timeline_negative_repeat_until_period_end():
+    # last entry repeats to the period end; a partial final segment still counts
+    assert _expand_timeline([(0, 4, -1)], 10) == [(0, 4), (4, 4), (8, 4)]
+    with pytest.raises(MediaError, match="r=-1"):
+        _expand_timeline([(0, 4, -1)], None)
+
+
+def test_parse_mpd_negative_repeat_uses_media_presentation_duration():
+    xml = """<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT10S">
+      <Period><AdaptationSet contentType="audio"><Representation id="a" bandwidth="1">
+        <SegmentTemplate timescale="1000" startNumber="0" initialization="i.webm" media="s-$Number$.webm">
+          <SegmentTimeline><S t="0" d="2000" r="-1"/></SegmentTimeline>
+        </SegmentTemplate></Representation></AdaptationSet></Period></MPD>"""
+    rep = parse_mpd(xml)[0]
+    assert rep["timeline"] == [
+        (0, 2000),
+        (2000, 2000),
+        (4000, 2000),
+        (6000, 2000),
+        (8000, 2000),
+    ]
+    assert duration_seconds(rep) == 10.0
