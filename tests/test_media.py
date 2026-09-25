@@ -323,3 +323,28 @@ def test_concurrent_downloads_use_distinct_workdirs(tmp_path: Path, monkeypatch)
 
     asyncio.run(run())
     assert list(tmp_path.iterdir()) == []
+
+
+def test_run_ffmpeg_is_async_and_reports_failure(tmp_path: Path):
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg required")
+
+    async def run():
+        # A concurrent coroutine must be able to make progress while ffmpeg runs.
+        ticks = 0
+
+        async def ticker():
+            nonlocal ticks
+            while True:
+                ticks += 1
+                await asyncio.sleep(0.001)
+
+        t = asyncio.create_task(ticker())
+        with pytest.raises(MediaError, match="ffmpeg failed"):
+            await media._run_ffmpeg(
+                ["-i", str(tmp_path / "missing.webm"), str(tmp_path / "o.wav")]
+            )
+        t.cancel()
+        assert ticks > 0
+
+    asyncio.run(run())

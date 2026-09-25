@@ -16,7 +16,6 @@ Segment and manifest fetches need no cookie; the URL signature is the credential
 import asyncio
 import re
 import shutil
-import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -256,16 +255,30 @@ async def _download_track(
             f.write(data)
 
 
-def _run_ffmpeg(args: list[str]) -> None:
-    if not shutil.which("ffmpeg"):
+async def _run_ffmpeg(args: list[str]) -> None:
+    """Run ffmpeg without blocking the event loop."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
         raise MediaError("ffmpeg not found on PATH; install it (brew install ffmpeg)")
-    proc = subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", *args],
-        capture_output=True,
-        text=True,
+    proc = await asyncio.create_subprocess_exec(
+        ffmpeg,
+        "-y",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        *args,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
     )
+    try:
+        _, stderr = await proc.communicate()
+    except asyncio.CancelledError:
+        proc.kill()
+        await proc.wait()
+        raise
     if proc.returncode != 0:
-        raise MediaError(f"ffmpeg failed: {proc.stderr.strip()[:500]}")
+        msg = stderr.decode("utf-8", "replace").strip()[:500]
+        raise MediaError(f"ffmpeg failed: {msg}")
 
 
 def _trim_args(
@@ -354,7 +367,7 @@ async def download_media(
         if kind == "audio":
             # Loom serves Opus; keep the original bits when the container allows.
             codec = ["-c:a", "copy"] if suffix in COPY_AUDIO_SUFFIXES else []
-            _run_ffmpeg(
+            await _run_ffmpeg(
                 [
                     *_trim_args(start, end, a_off),
                     "-i",
@@ -374,7 +387,7 @@ async def download_media(
             if audio is not None:
                 args += [*_trim_args(start, end, a_off), "-i", str(a_tmp)]
                 maps += ["-map", "1:a:0"]
-            _run_ffmpeg([*args, *maps, *codec, "-shortest", str(out_path)])
+            await _run_ffmpeg([*args, *maps, *codec, "-shortest", str(out_path)])
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     return out_path
