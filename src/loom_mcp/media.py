@@ -413,7 +413,7 @@ async def download_media(
 
     audio = pick_representation(reps, "audio")
     video = pick_representation(reps, "video", quality) if kind == "video" else None
-    if audio is None and (kind == "audio" or video is None):
+    if kind == "audio" and audio is None:
         raise MediaError("DASH manifest has no audio track")
     if kind == "video" and video is None:
         raise MediaError("DASH manifest has no video track")

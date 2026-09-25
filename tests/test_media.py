@@ -554,3 +554,22 @@ def test_segment_fetch_failure_surfaces_as_media_error(tmp_path: Path):
     else:
         pytest.fail("expected MediaError")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_missing_track_errors_name_the_requested_kind(tmp_path: Path):
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg required for download_media preflight")
+    base, query = _manifest_base(MANIFEST_URL)
+    text_only = """<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static"><Period>
+      <AdaptationSet contentType="text"><Representation id="t" bandwidth="1">
+        <SegmentTemplate timescale="1" initialization="i" media="m-$Number$"/>
+      </Representation></AdaptationSet></Period></MPD>"""
+    http = _FakeHTTP({"playlistmultibitrate.mpd": text_only.encode()}, query)
+    with pytest.raises(MediaError, match="no video track"):
+        asyncio.run(
+            media.download_media(http, MANIFEST_URL, tmp_path / "x.mp4", kind="video")
+        )
+    with pytest.raises(MediaError, match="no audio track"):
+        asyncio.run(
+            media.download_media(http, MANIFEST_URL, tmp_path / "x.opus", kind="audio")
+        )
