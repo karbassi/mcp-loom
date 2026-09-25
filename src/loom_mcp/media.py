@@ -346,6 +346,13 @@ async def _run_ffmpeg(args: list[str]) -> None:
         raise MediaError(f"ffmpeg failed: {msg}")
 
 
+def _first_leaf(eg: BaseException) -> BaseException:
+    """Return the first non-group exception inside a possibly nested group."""
+    while isinstance(eg, BaseExceptionGroup):
+        eg = eg.exceptions[0]
+    return eg
+
+
 def _replace(src: Path, dst: Path) -> None:
     """Atomically move ``src`` onto ``dst``; fall back to copy across devices."""
     try:
@@ -454,7 +461,9 @@ async def download_media(
                         _download_track(http, base, query, rep, idx, dest, sem)
                     )
         except* MediaError as eg:
-            raise eg.exceptions[0] from None
+            # _download_track has its own TaskGroup, so the matched group can be
+            # nested; surface the first real MediaError for _call to convert.
+            raise _first_leaf(eg) from None
         suffix = out_path.suffix.lower()
         if kind == "audio":
             # Loom serves Opus; keep the original bits when the container allows.

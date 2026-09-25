@@ -535,3 +535,22 @@ def test_output_is_rendered_in_workdir_then_replaced(tmp_path: Path, monkeypatch
     asyncio.run(media.download_media(_FakeHTTP(files, query), MANIFEST_URL, out))
     assert out.read_bytes() == b"RENDERED"
     assert [p.name for p in tmp_path.iterdir()] == ["x.opus"]
+
+
+def test_segment_fetch_failure_surfaces_as_media_error(tmp_path: Path):
+    """A 403 on a *media* segment (inside the nested TaskGroup) must reach the
+    caller as a plain MediaError, not an ExceptionGroup."""
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg required for download_media preflight")
+    base, query = _manifest_base(MANIFEST_URL)
+    files = {"playlistmultibitrate.mpd": MPD.encode(), "abc123-audio-init.webm": b"I"}
+    files["abc123-audio-0.webm"] = b"S"  # segments 1 and 2 missing -> 403
+    http = _FakeHTTP(files, query)
+    try:
+        asyncio.run(media.download_media(http, MANIFEST_URL, tmp_path / "x.opus"))
+    except BaseException as e:  # noqa: BLE001 - we want to see the exact type
+        assert type(e) is MediaError, f"got {type(e).__name__}: {e!r}"
+        assert "HTTP 403" in str(e)
+    else:
+        pytest.fail("expected MediaError")
+    assert list(tmp_path.iterdir()) == []
