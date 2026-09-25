@@ -108,8 +108,15 @@ def parse_mpd(xml_text: str) -> list[dict]:
     """
     root = ET.fromstring(xml_text)
     mpd_duration = _parse_iso_duration(root.get("mediaPresentationDuration"))
+    periods = list(root.iter(_tag("Period")))
+    if len(periods) > 1:
+        # Each Period has its own timeline origin; stitching them would need
+        # per-period offsets and init segments. Loom manifests are single-Period.
+        raise MediaError(
+            f"multi-Period DASH manifests are not supported ({len(periods)} periods)"
+        )
     reps: list[dict] = []
-    for period in root.iter(_tag("Period")):
+    for period in periods:
         period_duration = _parse_iso_duration(period.get("duration")) or mpd_duration
         for aset in period.iter(_tag("AdaptationSet")):
             ctype = aset.get("contentType")

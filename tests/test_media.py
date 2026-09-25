@@ -573,3 +573,15 @@ def test_missing_track_errors_name_the_requested_kind(tmp_path: Path):
         asyncio.run(
             media.download_media(http, MANIFEST_URL, tmp_path / "x.opus", kind="audio")
         )
+
+
+def test_parse_mpd_rejects_multi_period():
+    xml = """<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
+      <Period id="0" duration="PT2S"><AdaptationSet contentType="audio"><Representation id="a" bandwidth="1">
+        <SegmentTemplate timescale="1" initialization="i" media="m-$Number$"><SegmentTimeline><S t="0" d="1" r="1"/></SegmentTimeline></SegmentTemplate>
+      </Representation></AdaptationSet></Period>
+      <Period id="1" duration="PT2S"><AdaptationSet contentType="audio"><Representation id="a" bandwidth="1">
+        <SegmentTemplate timescale="1" initialization="i" media="m-$Number$"><SegmentTimeline><S t="0" d="1" r="1"/></SegmentTimeline></SegmentTemplate>
+      </Representation></AdaptationSet></Period></MPD>"""
+    with pytest.raises(MediaError, match="multi-Period.*2 periods"):
+        parse_mpd(xml)
