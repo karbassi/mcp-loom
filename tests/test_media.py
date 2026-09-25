@@ -585,3 +585,28 @@ def test_parse_mpd_rejects_multi_period():
       </Representation></AdaptationSet></Period></MPD>"""
     with pytest.raises(MediaError, match="multi-Period.*2 periods"):
         parse_mpd(xml)
+
+
+def test_in_thread_waits_for_worker_on_cancellation():
+    """Cancelling the awaiting task must not return before the thread finishes."""
+    import threading
+    import time
+
+    started = threading.Event()
+    finished = threading.Event()
+
+    def work():
+        started.set()
+        time.sleep(0.2)
+        finished.set()
+
+    async def run():
+        task = asyncio.create_task(media._in_thread(work))
+        await asyncio.to_thread(started.wait, 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        # by the time cancellation propagates, the worker has completed
+        assert finished.is_set()
+
+    asyncio.run(run())

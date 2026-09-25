@@ -308,7 +308,7 @@ async def _download_track(
         name = fill_template(rep["media"], rep, number=num, time=t)
         async with sem:
             data = await _fetch(http, f"{base}{name}?{query}")
-            await asyncio.to_thread(part_path(i).write_bytes, data)
+            await _in_thread(part_path(i).write_bytes, data)
 
     init = await _fetch(http, f"{base}{fill_template(rep['init'], rep)}?{query}")
     async with asyncio.TaskGroup() as tg:
@@ -324,7 +324,7 @@ async def _download_track(
                     shutil.copyfileobj(pf, f)
                 part.unlink()
 
-    await asyncio.to_thread(stitch)
+    await _in_thread(stitch)
 
 
 async def _run_ffmpeg(args: list[str]) -> None:
@@ -351,6 +351,21 @@ async def _run_ffmpeg(args: list[str]) -> None:
     if proc.returncode != 0:
         msg = stderr.decode("utf-8", "replace").strip()[:500]
         raise MediaError(f"ffmpeg failed: {msg}")
+
+
+async def _in_thread(fn, /, *args):
+    """Run ``fn`` in a worker thread; on cancellation, wait for it to finish.
+
+    ``asyncio.to_thread`` cannot interrupt a running thread, so a cancelled
+    caller would otherwise proceed to clean up the work directory while the
+    thread is still reading or writing files in it.
+    """
+    fut = asyncio.ensure_future(asyncio.to_thread(fn, *args))
+    try:
+        return await asyncio.shield(fut)
+    except asyncio.CancelledError:
+        await asyncio.wait([fut])
+        raise
 
 
 def _first_leaf(eg: BaseException) -> BaseException:
@@ -496,7 +511,7 @@ async def download_media(
                 args += [*_trim_args(start, end, a_off), "-i", str(a_tmp)]
                 maps += ["-map", "1:a:0"]
             await _run_ffmpeg([*args, *maps, *codec, "-shortest", str(render)])
-        await asyncio.to_thread(_replace, render, out_path)
+        await _in_thread(_replace, render, out_path)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     return out_path
