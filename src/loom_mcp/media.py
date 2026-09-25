@@ -245,21 +245,39 @@ async def _download_track(
     dest: Path,
     sem: asyncio.Semaphore,
 ) -> None:
-    """Fetch init + selected media segments and concatenate them into ``dest``."""
+    """Fetch init + selected media segments and concatenate them into ``dest``.
 
-    async def one(i: int) -> tuple[int, bytes]:
+    Each segment is spilled to its own ``.part`` file next to ``dest`` as soon
+    as it arrives, so peak memory is bounded by the semaphore width times one
+    segment rather than the whole recording. Parts are then concatenated in
+    timeline order and removed.
+    """
+
+    def part_path(i: int) -> Path:
+        return dest.with_name(f"{dest.name}.{i}.part")
+
+    async def one(i: int) -> None:
         num = rep["startNumber"] + i
         name = _expand(rep["media"], rep).replace("$Number$", str(num))
         async with sem:
-            return i, await _fetch(http, f"{base}{name}?{query}")
+            data = await _fetch(http, f"{base}{name}?{query}")
+            await asyncio.to_thread(part_path(i).write_bytes, data)
 
     init = await _fetch(http, f"{base}{_expand(rep['init'], rep)}?{query}")
-    results = await asyncio.gather(*(one(i) for i in indices))
-    results.sort(key=lambda x: x[0])
-    with open(dest, "wb") as f:
-        f.write(init)
-        for _, data in results:
-            f.write(data)
+    async with asyncio.TaskGroup() as tg:
+        for i in indices:
+            tg.create_task(one(i))
+
+    def stitch() -> None:
+        with open(dest, "wb") as f:
+            f.write(init)
+            for i in indices:
+                part = part_path(i)
+                with open(part, "rb") as pf:
+                    shutil.copyfileobj(pf, f)
+                part.unlink()
+
+    await asyncio.to_thread(stitch)
 
 
 async def _run_ffmpeg(args: list[str]) -> None:

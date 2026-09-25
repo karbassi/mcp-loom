@@ -190,6 +190,44 @@ def test_download_track_stitches_init_and_segments_in_order(tmp_path: Path):
     )
     assert dest.read_bytes() == b"INITS1S2S3"
     assert len(http.requested) == 4
+    assert [p.name for p in tmp_path.iterdir()] == ["v.webm"]  # no .part left
+
+
+def test_download_track_spills_segments_to_disk(tmp_path: Path):
+    """Completed segments are on disk as .part files before stitching, so the
+    whole recording is never held in memory at once."""
+    base, query = _manifest_base(MANIFEST_URL)
+    video = parse_mpd(MPD)[1]
+    files = {"abc123-video-init.webm": b"INIT"}
+    for n in range(5):
+        files[f"abc123-video-{n}.webm"] = f"S{n}".encode()
+    dest = tmp_path / "v.webm"
+    seen_parts: list[set[str]] = []
+    gate = asyncio.Event()
+
+    class ObservingHTTP(_FakeHTTP):
+        async def get(self, url, headers=None):
+            if url.startswith(f"{base}abc123-video-4.webm"):
+                await gate.wait()  # last segment: others have landed
+                seen_parts.append({p.name for p in tmp_path.glob("*.part")})
+            return await super().get(url, headers)
+
+    async def run():
+        http = ObservingHTTP(files, query)
+        task = asyncio.create_task(
+            media._download_track(
+                http, base, query, video, [0, 1, 2, 3, 4], dest, asyncio.Semaphore(8)
+            )
+        )
+        while len(list(tmp_path.glob("*.part"))) < 4:
+            await asyncio.sleep(0.005)
+        gate.set()
+        await task
+
+    asyncio.run(run())
+    assert seen_parts and seen_parts[0] >= {f"v.webm.{i}.part" for i in range(4)}
+    assert dest.read_bytes() == b"INITS0S1S2S3S4"
+    assert list(tmp_path.glob("*.part")) == []
 
 
 def test_fetch_403_raises_media_error():
