@@ -111,6 +111,8 @@ def test_pick_representation():
     assert pick_representation(reps, "video", "best")["id"] == "original"
     assert pick_representation(reps, "video", "small")["id"] == "1500000"
     assert pick_representation(reps, "subtitle") is None
+    with pytest.raises(MediaError, match="quality"):
+        pick_representation(reps, "video", "medium")
 
 
 def test_select_segments_full_range():
@@ -202,6 +204,12 @@ def test_download_media_validates_args(tmp_path: Path):
     with pytest.raises(MediaError, match="kind"):
         asyncio.run(
             media.download_media(http, MANIFEST_URL, tmp_path / "x.wav", kind="gif")
+        )
+    with pytest.raises(MediaError, match="quality"):
+        asyncio.run(
+            media.download_media(
+                http, MANIFEST_URL, tmp_path / "x.mp4", kind="video", quality="720p"
+            )
         )
     with pytest.raises(MediaError, match="end must be greater"):
         asyncio.run(

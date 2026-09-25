@@ -32,6 +32,7 @@ _MAX_CONCURRENCY = 24
 # Containers that can hold Loom's native Opus/VP9 streams without re-encoding.
 COPY_AUDIO_SUFFIXES = {".webm", ".opus", ".ogg", ".mka", ".mkv"}
 COPY_VIDEO_SUFFIXES = {".webm", ".mkv"}
+QUALITIES = {"best", "small"}
 
 
 class MediaError(LoomAPIError):
@@ -162,8 +163,10 @@ def pick_representation(
     """Choose a representation for ``content_type`` ('audio' or 'video').
 
     Audio has a single representation. For video, ``quality='best'`` picks the
-    highest bandwidth and anything else picks the lowest.
+    highest bandwidth and ``'small'`` the lowest.
     """
+    if quality not in QUALITIES:
+        raise MediaError(f"quality must be one of {sorted(QUALITIES)}")
     candidates = [r for r in reps if r["contentType"] == content_type]
     if not candidates:
         return None
@@ -313,6 +316,8 @@ async def download_media(
     """
     if kind not in ("audio", "video"):
         raise MediaError("kind must be 'audio' or 'video'")
+    if quality not in QUALITIES:
+        raise MediaError(f"quality must be one of {sorted(QUALITIES)}")
     if start is not None and start < 0:
         raise MediaError("start must be >= 0")
     if start is not None and end is not None and end <= start:
