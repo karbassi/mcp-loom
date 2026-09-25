@@ -9,6 +9,8 @@ import pytest
 from loom_mcp import media
 from loom_mcp.media import (
     MediaError,
+    COPY_AUDIO_SUFFIXES,
+    COPY_VIDEO_SUFFIXES,
     _expand,
     _manifest_base,
     _trim_args,
@@ -210,3 +212,9 @@ def test_expand_template_identifiers():
         _expand("chunk-$Bandwidth$-$Number$.webm", rep) == "chunk-1500000-$Number$.webm"
     )
     assert _expand("abc-audio-$Number$.webm", rep) == "abc-audio-$Number$.webm"
+
+
+def test_copy_suffixes_are_opus_vp9_capable():
+    assert {".opus", ".webm"} <= COPY_AUDIO_SUFFIXES
+    assert ".wav" not in COPY_AUDIO_SUFFIXES and ".m4a" not in COPY_AUDIO_SUFFIXES
+    assert COPY_VIDEO_SUFFIXES == {".webm", ".mkv"}

@@ -63,10 +63,11 @@ async def test_get_cdn_url_returns_dash_manifest(loom):
 
 @pytest.mark.anyio
 async def test_audio_full(loom, tmp_path):
-    out = await loom.download_media(VIDEO_ID, tmp_path / "full.wav", kind="audio")
+    out = await loom.download_media(VIDEO_ID, tmp_path / "full.opus", kind="audio")
     info = _probe(out)
     assert abs(float(info["format"]["duration"]) - 3275.3) < 2.0
     assert info["streams"][0]["codec_type"] == "audio"
+    assert info["streams"][0]["codec_name"] == "opus"
 
 
 @pytest.mark.anyio

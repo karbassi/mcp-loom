@@ -409,7 +409,7 @@ async def download_media(
     video_id: Annotated[str, "The Loom video ID"],
     out_path: Annotated[
         str,
-        "Local output path; the extension sets the container (.wav/.m4a/.mp3 for audio, .mp4/.mkv/.webm for video)",
+        "Local output path; the extension sets the container. Audio: .opus or .webm (recommended, original Opus bits, no re-encode), or .wav/.m4a/.mp3 (re-encoded). Video: .webm/.mkv (stream copy) or .mp4 (re-encoded to H.264/AAC)",
     ],
     kind: Annotated[str, "'audio' (default) or 'video'"] = "audio",
     quality: Annotated[
@@ -419,7 +419,7 @@ async def download_media(
     start: Annotated[float | None, "Trim start, in seconds from the beginning"] = None,
     end: Annotated[float | None, "Trim end, in seconds from the beginning"] = None,
 ) -> str:
-    """Download a Loom video's audio or video to a local file. Works even when MP4 export is disabled (e.g. notetaker recordings where get_download_url returns nothing). Optionally trim to a [start, end] range in seconds; only the needed segments are fetched. .mp4/.wav/.m4a/.mp3 outputs are re-encoded for frame-accurate trims; .webm/.mkv are stream-copied (fast, but trim points snap to keyframes). Requires ffmpeg on PATH."""
+    """Download a Loom video's audio or video to a local file. Works even when MP4 export is disabled (e.g. notetaker recordings where get_download_url returns nothing). Optionally trim to a [start, end] range in seconds; only the needed segments are fetched. Loom serves Opus audio and VP9 video; .opus/.webm/.mkv outputs are stream-copied (original quality, no re-encode; trim points snap to segment/keyframe boundaries), while .wav/.m4a/.mp3/.mp4 are re-encoded (frame-accurate trims, no extra fidelity). Requires ffmpeg on PATH."""
     if kind not in ("audio", "video"):
         raise ToolError("kind must be 'audio' or 'video'")
     if quality not in ("best", "small"):

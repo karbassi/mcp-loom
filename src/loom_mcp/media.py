@@ -28,8 +28,9 @@ _DASH_NS = "urn:mpeg:dash:schema:mpd:2011"
 _UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 _MAX_CONCURRENCY = 24
 
-AUDIO_SUFFIXES = {".wav", ".m4a", ".mp3", ".ogg", ".opus", ".flac", ".aac", ".webm"}
-VIDEO_SUFFIXES = {".mp4", ".mkv", ".webm", ".mov"}
+# Containers that can hold Loom's native Opus/VP9 streams without re-encoding.
+COPY_AUDIO_SUFFIXES = {".webm", ".opus", ".ogg", ".mka", ".mkv"}
+COPY_VIDEO_SUFFIXES = {".webm", ".mkv"}
 
 
 class MediaError(LoomAPIError):
@@ -287,13 +288,22 @@ async def download_media(
 
     try:
         await asyncio.gather(*tasks)
+        suffix = out_path.suffix.lower()
         if kind == "audio":
+            # Loom serves Opus; keep the original bits when the container allows.
+            codec = ["-c:a", "copy"] if suffix in COPY_AUDIO_SUFFIXES else []
             _run_ffmpeg(
-                [*_trim_args(start, end, a_off), "-i", str(a_tmp), "-vn", str(out_path)]
+                [
+                    *_trim_args(start, end, a_off),
+                    "-i",
+                    str(a_tmp),
+                    "-vn",
+                    *codec,
+                    str(out_path),
+                ]
             )
         else:
-            suffix = out_path.suffix.lower()
-            if suffix in (".webm", ".mkv"):
+            if suffix in COPY_VIDEO_SUFFIXES:
                 codec = ["-c", "copy"]
             else:
                 codec = ["-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac"]
