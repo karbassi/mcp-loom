@@ -456,3 +456,36 @@ def test_out_of_range_request_leaves_no_workdir(tmp_path: Path):
             )
         )
     assert list(tmp_path.iterdir()) == []
+
+
+def test_output_is_rendered_in_workdir_then_replaced(tmp_path: Path, monkeypatch):
+    """ffmpeg never writes out_path directly; a failure leaves the existing file intact."""
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg required for download_media preflight")
+    base, query = _manifest_base(MANIFEST_URL)
+    files = {"playlistmultibitrate.mpd": MPD.encode(), "abc123-audio-init.webm": b"I"}
+    for n in range(3):
+        files[f"abc123-audio-{n}.webm"] = b"S"
+    out = tmp_path / "x.opus"
+    out.write_bytes(b"PREVIOUS")
+    calls: list[list[str]] = []
+
+    async def fake_ffmpeg(args):
+        calls.append(args)
+        raise MediaError("ffmpeg failed: simulated")
+
+    monkeypatch.setattr(media, "_run_ffmpeg", fake_ffmpeg)
+    with pytest.raises(MediaError, match="simulated"):
+        asyncio.run(media.download_media(_FakeHTTP(files, query), MANIFEST_URL, out))
+    target = Path(calls[0][-1])
+    assert target != out and target.parent.name.startswith(".loom-media-")
+    assert target.suffix == ".opus"
+    assert out.read_bytes() == b"PREVIOUS"
+
+    async def ok_ffmpeg(args):
+        Path(args[-1]).write_bytes(b"RENDERED")
+
+    monkeypatch.setattr(media, "_run_ffmpeg", ok_ffmpeg)
+    asyncio.run(media.download_media(_FakeHTTP(files, query), MANIFEST_URL, out))
+    assert out.read_bytes() == b"RENDERED"
+    assert [p.name for p in tmp_path.iterdir()] == ["x.opus"]

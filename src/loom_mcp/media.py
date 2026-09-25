@@ -14,6 +14,7 @@ Segment and manifest fetches need no cookie; the URL signature is the credential
 """
 
 import asyncio
+import os
 import re
 import shutil
 import tempfile
@@ -306,6 +307,14 @@ async def _run_ffmpeg(args: list[str]) -> None:
         raise MediaError(f"ffmpeg failed: {msg}")
 
 
+def _replace(src: Path, dst: Path) -> None:
+    """Atomically move ``src`` onto ``dst``; fall back to copy across devices."""
+    try:
+        os.replace(src, dst)
+    except OSError:
+        shutil.move(str(src), str(dst))
+
+
 def _trim_args(
     start: float | None, end: float | None, track_offset: float
 ) -> list[str]:
@@ -386,6 +395,9 @@ async def download_media(
     workdir = Path(tempfile.mkdtemp(prefix=".loom-media-", dir=tmp_parent))
     a_tmp = workdir / "audio.webm"
     v_tmp = workdir / "video.webm"
+    # ffmpeg renders here; the result is moved onto out_path only on success so
+    # concurrent calls (or a failure) can never leave a truncated destination.
+    render = workdir / f"output{out_path.suffix}"
     sem = asyncio.Semaphore(_MAX_CONCURRENCY)
     tracks: list[tuple[dict, list[int], Path]] = []
     if audio is not None:
@@ -415,7 +427,7 @@ async def download_media(
                     str(a_tmp),
                     "-vn",
                     *codec,
-                    str(out_path),
+                    str(render),
                 ]
             )
         else:
@@ -428,7 +440,8 @@ async def download_media(
             if audio is not None:
                 args += [*_trim_args(start, end, a_off), "-i", str(a_tmp)]
                 maps += ["-map", "1:a:0"]
-            await _run_ffmpeg([*args, *maps, *codec, "-shortest", str(out_path)])
+            await _run_ffmpeg([*args, *maps, *codec, "-shortest", str(render)])
+        await asyncio.to_thread(_replace, render, out_path)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     return out_path
