@@ -390,3 +390,17 @@ def test_failed_track_cancels_sibling_download(tmp_path: Path):
 
     asyncio.run(run())
     assert list(tmp_path.iterdir()) == []
+
+
+def test_parse_mpd_normalises_presentation_time_offset():
+    xml = """<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT4S">
+      <Period><AdaptationSet contentType="audio"><Representation id="a" bandwidth="1">
+        <SegmentTemplate timescale="1000" startNumber="0" presentationTimeOffset="5000"
+            initialization="i.webm" media="s-$Number$.webm">
+          <SegmentTimeline><S t="5000" d="2000" r="-1"/></SegmentTimeline>
+        </SegmentTemplate></Representation></AdaptationSet></Period></MPD>"""
+    rep = parse_mpd(xml)[0]
+    # media time 5000 is presentation time 0; r=-1 runs to the 4s period end
+    assert rep["timeline"] == [(0, 2000), (2000, 2000)]
+    assert select_segments(rep, 0.0, 1.0) == ([0], 0.0)
+    assert select_segments(rep, 2.5, None) == ([1], 2.0)

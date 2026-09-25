@@ -120,7 +120,9 @@ def parse_mpd(xml_text: str) -> list[dict]:
                     continue
                 timescale = int(st.get("timescale", "1"))
                 pto = int(st.get("presentationTimeOffset", "0"))
-                # Timeline times are period-relative, offset by presentationTimeOffset.
+                # Raw timeline times are offset by presentationTimeOffset; we
+                # normalise to presentation time (0 = period start) below so
+                # select_segments compares against the caller's clock.
                 period_end: int | None = None
                 if period_duration is not None:
                     period_end = pto + int(round(period_duration * timescale))
@@ -135,7 +137,9 @@ def parse_mpd(xml_text: str) -> list[dict]:
                         )
                         for s in tl.findall(_tag("S"))
                     ]
-                    timeline = _expand_timeline(entries, period_end)
+                    timeline = [
+                        (t - pto, d) for t, d in _expand_timeline(entries, period_end)
+                    ]
                 if ctype is None:
                     mime = rep.get("mimeType") or aset.get("mimeType") or ""
                     ctype = mime.split("/", 1)[0] or None
