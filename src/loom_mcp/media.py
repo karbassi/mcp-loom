@@ -156,6 +156,7 @@ def parse_mpd(xml_text: str) -> list[dict]:
                         "media": st.get("media"),
                         "startNumber": int(st.get("startNumber", "0")),
                         "timescale": timescale,
+                        "pto": pto,
                         "timeline": timeline,
                     }
                 )
@@ -230,11 +231,47 @@ async def _fetch(http: httpx.AsyncClient, url: str) -> bytes:
     return r.content
 
 
-def _expand(template: str, rep: dict) -> str:
-    """Expand non-numeric DASH template identifiers."""
-    return template.replace("$RepresentationID$", str(rep["id"])).replace(
-        "$Bandwidth$", str(rep["bandwidth"])
-    )
+_TEMPLATE_RE = re.compile(r"\$(RepresentationID|Bandwidth|Number|Time)(%0\d+d)?\$|\$\$")
+
+
+def fill_template(
+    template: str, rep: dict, number: int | None = None, time: int | None = None
+) -> str:
+    """Expand a DASH ``SegmentTemplate`` URL (ISO 23009-1 §5.3.9.4.4).
+
+    Handles ``$RepresentationID$``, ``$Bandwidth$``, ``$Number$``, ``$Time$``,
+    optional ``%0Nd`` width formatting, and the ``$$`` escape. ``number`` and
+    ``time`` are required only when the template uses them; ``time`` is the raw
+    media timestamp (including presentationTimeOffset). Unknown identifiers
+    raise MediaError rather than sending a literal placeholder to the CDN.
+    """
+
+    def sub(m: re.Match) -> str:
+        if m.group(0) == "$$":
+            return "$"
+        ident, fmt = m.group(1), m.group(2)
+        if ident == "RepresentationID":
+            value: int | str = str(rep["id"])
+        elif ident == "Bandwidth":
+            value = rep["bandwidth"]
+        elif ident == "Number":
+            if number is None:
+                raise MediaError("template uses $Number$ but no segment number given")
+            value = number
+        else:
+            if time is None:
+                raise MediaError("template uses $Time$ but no segment time given")
+            value = time
+        if fmt:
+            if not isinstance(value, int):
+                raise MediaError(f"format {fmt} not allowed on ${ident}$")
+            return fmt % value
+        return str(value)
+
+    out = _TEMPLATE_RE.sub(sub, template)
+    if re.search(r"\$[A-Za-z]+(%0\d+d)?\$", out):
+        raise MediaError(f"unsupported DASH template identifier in {template!r}")
+    return out
 
 
 async def _download_track(
@@ -259,12 +296,14 @@ async def _download_track(
 
     async def one(i: int) -> None:
         num = rep["startNumber"] + i
-        name = _expand(rep["media"], rep).replace("$Number$", str(num))
+        # $Time$ is the raw media timestamp, so undo the presentation-time shift.
+        t = rep["timeline"][i][0] + rep.get("pto", 0)
+        name = fill_template(rep["media"], rep, number=num, time=t)
         async with sem:
             data = await _fetch(http, f"{base}{name}?{query}")
             await asyncio.to_thread(part_path(i).write_bytes, data)
 
-    init = await _fetch(http, f"{base}{_expand(rep['init'], rep)}?{query}")
+    init = await _fetch(http, f"{base}{fill_template(rep['init'], rep)}?{query}")
     async with asyncio.TaskGroup() as tg:
         for i in indices:
             tg.create_task(one(i))

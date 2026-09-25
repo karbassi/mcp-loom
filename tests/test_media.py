@@ -13,12 +13,12 @@ from loom_mcp.media import (
     MediaError,
     COPY_AUDIO_SUFFIXES,
     COPY_VIDEO_SUFFIXES,
-    _expand,
     _expand_timeline,
     _parse_iso_duration,
     _manifest_base,
     _trim_args,
     duration_seconds,
+    fill_template,
     parse_mpd,
     pick_representation,
     select_segments,
@@ -255,13 +255,59 @@ def test_download_media_validates_args(tmp_path: Path):
         )
 
 
-def test_expand_template_identifiers():
+def test_fill_template_identifiers_and_formats():
     rep = {"id": "1500000", "bandwidth": 1500000}
-    assert _expand("init-$RepresentationID$.webm", rep) == "init-1500000.webm"
+    assert fill_template("init-$RepresentationID$.webm", rep) == "init-1500000.webm"
     assert (
-        _expand("chunk-$Bandwidth$-$Number$.webm", rep) == "chunk-1500000-$Number$.webm"
+        fill_template("c-$Bandwidth$-$Number$.webm", rep, number=7)
+        == "c-1500000-7.webm"
     )
-    assert _expand("abc-audio-$Number$.webm", rep) == "abc-audio-$Number$.webm"
+    assert fill_template("a-$Number%05d$.webm", rep, number=7) == "a-00007.webm"
+    assert fill_template("a-$Time$.webm", rep, time=4000000) == "a-4000000.webm"
+    assert fill_template("a-$Time%08d$.webm", rep, time=42) == "a-00000042.webm"
+    assert fill_template("price$$-$Number$.webm", rep, number=1) == "price$-1.webm"
+    assert fill_template("plain-init.webm", rep) == "plain-init.webm"
+
+
+def test_fill_template_rejects_missing_or_unknown():
+    rep = {"id": "a", "bandwidth": 1}
+    with pytest.raises(MediaError, match="Number"):
+        fill_template("a-$Number$.webm", rep)
+    with pytest.raises(MediaError, match="Time"):
+        fill_template("a-$Time$.webm", rep, number=1)
+    with pytest.raises(MediaError, match="unsupported"):
+        fill_template("a-$SubNumber$.webm", rep, number=1)
+    with pytest.raises(MediaError, match="not allowed"):
+        fill_template("$RepresentationID%03d$.webm", rep)
+
+
+def test_download_track_uses_time_template_with_raw_media_time(tmp_path: Path):
+    """$Time$ must be the raw media timestamp (timeline + presentationTimeOffset)."""
+    base, query = _manifest_base(MANIFEST_URL)
+    rep = {
+        "id": "a",
+        "bandwidth": 1,
+        "init": "i-$RepresentationID$.webm",
+        "media": "s-$Time%07d$.webm",
+        "startNumber": 1,
+        "timescale": 1000,
+        "pto": 5000,
+        "timeline": [(0, 2000), (2000, 2000), (4000, 2000)],
+    }
+    files = {
+        "i-a.webm": b"INIT",
+        "s-0005000.webm": b"A",
+        "s-0007000.webm": b"B",
+        "s-0009000.webm": b"C",
+    }
+    http = _FakeHTTP(files, query)
+    dest = tmp_path / "t.webm"
+    asyncio.run(
+        media._download_track(
+            http, base, query, rep, [0, 1, 2], dest, asyncio.Semaphore(4)
+        )
+    )
+    assert dest.read_bytes() == b"INITABC"
 
 
 def test_copy_suffixes_are_opus_vp9_capable():
