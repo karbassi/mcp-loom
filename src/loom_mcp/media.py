@@ -347,6 +347,20 @@ async def download_media(
 
     out_path = Path(out_path).expanduser().resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    # Resolve everything that can fail before creating the work directory.
+    a_idx: list[int] = []
+    a_off = 0.0
+    if audio is not None:
+        a_idx, a_off = select_segments(audio, start, end)
+        if not a_idx:
+            raise MediaError("Requested time range is outside the recording")
+    v_idx: list[int] = []
+    v_off = 0.0
+    if video is not None:
+        v_idx, v_off = select_segments(video, start, end)
+        if not v_idx:
+            raise MediaError("Requested time range is outside the recording")
+
     tmp_parent = Path(tmp_root).expanduser().resolve() if tmp_root else out_path.parent
     tmp_parent.mkdir(parents=True, exist_ok=True)
     # Unique per call so concurrent downloads (e.g. foo.mp4 and foo.m4a, or the
@@ -354,20 +368,11 @@ async def download_media(
     workdir = Path(tempfile.mkdtemp(prefix=".loom-media-", dir=tmp_parent))
     a_tmp = workdir / "audio.webm"
     v_tmp = workdir / "video.webm"
-
     sem = asyncio.Semaphore(_MAX_CONCURRENCY)
     tracks: list[tuple[dict, list[int], Path]] = []
-    a_off = 0.0
     if audio is not None:
-        a_idx, a_off = select_segments(audio, start, end)
-        if not a_idx:
-            raise MediaError("Requested time range is outside the recording")
         tracks.append((audio, a_idx, a_tmp))
-    v_off = 0.0
     if video is not None:
-        v_idx, v_off = select_segments(video, start, end)
-        if not v_idx:
-            raise MediaError("Requested time range is outside the recording")
         tracks.append((video, v_idx, v_tmp))
 
     try:

@@ -404,3 +404,17 @@ def test_parse_mpd_normalises_presentation_time_offset():
     assert rep["timeline"] == [(0, 2000), (2000, 2000)]
     assert select_segments(rep, 0.0, 1.0) == ([0], 0.0)
     assert select_segments(rep, 2.5, None) == ([1], 2.0)
+
+
+def test_out_of_range_request_leaves_no_workdir(tmp_path: Path):
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg required for download_media preflight")
+    base, query = _manifest_base(MANIFEST_URL)
+    http = _FakeHTTP({"playlistmultibitrate.mpd": MPD.encode()}, query)
+    with pytest.raises(MediaError, match="outside the recording"):
+        asyncio.run(
+            media.download_media(
+                http, MANIFEST_URL, tmp_path / "x.opus", start=500, end=600
+            )
+        )
+    assert list(tmp_path.iterdir()) == []
