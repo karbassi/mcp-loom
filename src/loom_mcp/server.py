@@ -11,8 +11,11 @@ from fastmcp.server.lifespan import lifespan
 from pydantic import Field
 
 from loom_mcp.client import LoomClient, LoomAPIError
+from loom_mcp.media import absolute_path
 
 _ID_RE = re.compile(r"\A[a-zA-Z0-9_.\-]{1,200}\Z")
+
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 def _find_project_root() -> Path | None:
@@ -75,12 +78,20 @@ def _get_client(ctx: Context) -> LoomClient:
     return ctx.lifespan_context["loom"]
 
 
+def _abs_path(value: str, label: str) -> Path:
+    """Expand ``~`` and require an absolute path, as a ToolError otherwise."""
+    try:
+        return absolute_path(value, label)
+    except LoomAPIError as e:
+        raise ToolError(str(e)) from None
+
+
 def _save(
     save_dir: str | None, video_id: str, filename: str, content: str
 ) -> Path | None:
     if not save_dir or not content:
         return None
-    video_dir = Path(save_dir).expanduser().resolve() / video_id
+    video_dir = _abs_path(save_dir, "save_dir").resolve() / video_id
     video_dir.mkdir(parents=True, exist_ok=True)
     path = video_dir / filename
     path.write_text(content, encoding="utf-8")
@@ -202,7 +213,8 @@ async def get_video(
     ctx: Context,
     video_id: Annotated[str, "The Loom video ID (32-char hex string)"],
     save_dir: Annotated[
-        str | None, "Directory to save output to (omit to skip saving)"
+        str | None,
+        "Absolute directory on the server's machine to save output to (~ allowed; relative paths are rejected). Omit to skip saving",
     ] = None,
 ) -> str:
     """Get metadata for a Loom video including name, duration, owner, views, and creation date.
@@ -233,7 +245,8 @@ async def get_transcript(
     ctx: Context,
     video_id: Annotated[str, "The Loom video ID"],
     save_dir: Annotated[
-        str | None, "Directory to save output to (omit to skip saving)"
+        str | None,
+        "Absolute directory on the server's machine to save output to (~ allowed; relative paths are rejected). Omit to skip saving",
     ] = None,
 ) -> str:
     """Get the full transcript of a Loom video with timestamps and speaker names.
@@ -263,7 +276,8 @@ async def get_captions(
     ctx: Context,
     video_id: Annotated[str, "The Loom video ID"],
     save_dir: Annotated[
-        str | None, "Directory to save output to (omit to skip saving)"
+        str | None,
+        "Absolute directory on the server's machine to save output to (~ allowed; relative paths are rejected). Omit to skip saving",
     ] = None,
 ) -> str:
     """Get WebVTT captions of a Loom video with start and end timestamps per cue.
@@ -292,7 +306,8 @@ async def get_summary(
     ctx: Context,
     video_id: Annotated[str, "The Loom video ID"],
     save_dir: Annotated[
-        str | None, "Directory to save output to (omit to skip saving)"
+        str | None,
+        "Absolute directory on the server's machine to save output to (~ allowed; relative paths are rejected). Omit to skip saving",
     ] = None,
 ) -> str:
     """Get the AI-generated summary of a Loom video (1-2 concise sentences).
@@ -324,7 +339,8 @@ async def get_chapters(
     ctx: Context,
     video_id: Annotated[str, "The Loom video ID"],
     save_dir: Annotated[
-        str | None, "Directory to save output to (omit to skip saving)"
+        str | None,
+        "Absolute directory on the server's machine to save output to (~ allowed; relative paths are rejected). Omit to skip saving",
     ] = None,
 ) -> str:
     """Get AI-generated chapter markers with timestamps for a Loom video.
@@ -354,7 +370,8 @@ async def get_comments(
     ctx: Context,
     video_id: Annotated[str, "The Loom video ID"],
     save_dir: Annotated[
-        str | None, "Directory to save output to (omit to skip saving)"
+        str | None,
+        "Absolute directory on the server's machine to save output to (~ allowed; relative paths are rejected). Omit to skip saving",
     ] = None,
 ) -> str:
     """Get comments on a Loom video, including threaded replies and timestamps."""
@@ -409,7 +426,7 @@ async def download_media(
     video_id: Annotated[str, "The Loom video ID"],
     out_path: Annotated[
         str,
-        "Local output path; the extension sets the container. Audio: .opus or .webm (recommended, original Opus bits, no re-encode), or .wav/.m4a/.mp3 (re-encoded). Video: .webm/.mkv (stream copy) or .mp4 (re-encoded to H.264/AAC)",
+        "Absolute output path on the server's machine (~ allowed; relative paths are rejected); the extension sets the container. Audio: .opus or .webm (recommended, original Opus bits, no re-encode), or .wav/.m4a/.mp3 (re-encoded). Video: .webm/.mkv (stream copy) or .mp4 (re-encoded to H.264/AAC)",
     ],
     kind: Annotated[str, "'audio' (default) or 'video'"] = "audio",
     quality: Annotated[
@@ -428,11 +445,12 @@ async def download_media(
         raise ToolError("start must be >= 0")
     if start is not None and end is not None and end <= start:
         raise ToolError("end must be greater than start")
+    target = _abs_path(out_path, "out_path")
     client = _get_client(ctx)
     path = await _call(
         client.download_media(
             _id(video_id, "video ID"),
-            out_path,
+            target,
             kind=kind,
             quality=quality,
             start=start,
@@ -455,7 +473,8 @@ async def get_tasks(
     ctx: Context,
     video_id: Annotated[str, "The Loom video ID"],
     save_dir: Annotated[
-        str | None, "Directory to save output to (omit to skip saving)"
+        str | None,
+        "Absolute directory on the server's machine to save output to (~ allowed; relative paths are rejected). Omit to skip saving",
     ] = None,
 ) -> str:
     """Get AI-generated action items (tasks) from a Loom video, including assignee, status, and timestamp."""
@@ -488,7 +507,8 @@ async def get_reactions(
     ctx: Context,
     video_id: Annotated[str, "The Loom video ID"],
     save_dir: Annotated[
-        str | None, "Directory to save output to (omit to skip saving)"
+        str | None,
+        "Absolute directory on the server's machine to save output to (~ allowed; relative paths are rejected). Omit to skip saving",
     ] = None,
 ) -> str:
     """Get emoji reactions on a Loom video, including who reacted and at what timestamp."""
@@ -629,7 +649,8 @@ async def get_backlinks(
     ctx: Context,
     video_id: Annotated[str, "The Loom video ID"],
     save_dir: Annotated[
-        str | None, "Directory to save output to (omit to skip saving)"
+        str | None,
+        "Absolute directory on the server's machine to save output to (~ allowed; relative paths are rejected). Omit to skip saving",
     ] = None,
 ) -> str:
     """Get external references (backlinks) to a Loom video — where it's been shared or embedded."""
@@ -662,7 +683,8 @@ async def get_key_takeaways(
     ctx: Context,
     video_id: Annotated[str, "The Loom video ID"],
     save_dir: Annotated[
-        str | None, "Directory to save output to (omit to skip saving)"
+        str | None,
+        "Absolute directory on the server's machine to save output to (~ allowed; relative paths are rejected). Omit to skip saving",
     ] = None,
 ) -> str:
     """Get AI-generated key takeaways from a Loom video as a bullet list.
@@ -692,7 +714,8 @@ async def get_tags(
     ctx: Context,
     video_id: Annotated[str, "The Loom video ID"],
     save_dir: Annotated[
-        str | None, "Directory to save output to (omit to skip saving)"
+        str | None,
+        "Absolute directory on the server's machine to save output to (~ allowed; relative paths are rejected). Omit to skip saving",
     ] = None,
 ) -> str:
     """Get tags on a Loom video."""
@@ -719,7 +742,8 @@ async def get_description(
     ctx: Context,
     video_id: Annotated[str, "The Loom video ID"],
     save_dir: Annotated[
-        str | None, "Directory to save output to (omit to skip saving)"
+        str | None,
+        "Absolute directory on the server's machine to save output to (~ allowed; relative paths are rejected). Omit to skip saving",
     ] = None,
 ) -> str:
     """Get the AI-generated description of a Loom video with timestamped sections and bullet points.
@@ -898,7 +922,8 @@ async def get_video_details(
     ctx: Context,
     video_id: Annotated[str, "The Loom video ID"],
     save_dir: Annotated[
-        str | None, "Directory to save output to (omit to skip saving)"
+        str | None,
+        "Absolute directory on the server's machine to save output to (~ allowed; relative paths are rejected). Omit to skip saving",
     ] = None,
 ) -> str:
     """Get all available information for a Loom video in one call: metadata, transcript, chapters, summary, tasks, and comments.
@@ -1709,8 +1734,28 @@ async def regenerate_mp4(
     return json.dumps(result, indent=2)
 
 
-def main():
-    mcp.run()
+def main() -> None:
+    # stdio by default; set LOOM_MCP_TRANSPORT=http to run one shared server.
+    transport = os.environ.get("LOOM_MCP_TRANSPORT", "stdio")
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+        return
+    if transport != "http":
+        msg = f"LOOM_MCP_TRANSPORT must be 'stdio' or 'http', got {transport!r}"
+        raise SystemExit(msg)
+    host = os.environ.get("LOOM_MCP_HOST", "127.0.0.1")
+    if host not in LOOPBACK_HOSTS:
+        msg = f"LOOM_MCP_HOST must be a loopback address, got {host!r}"
+        raise SystemExit(msg)
+    mcp.run(
+        transport="http",
+        host=host,
+        port=int(os.environ.get("LOOM_MCP_PORT", "8505")),
+        show_banner=False,
+        # FastMCP defaults this off, leaving the server open to DNS rebinding.
+        # Extra trusted hosts/origins come from FASTMCP_HTTP_ALLOWED_HOSTS/_ORIGINS.
+        host_origin_protection=True,
+    )
 
 
 if __name__ == "__main__":

@@ -255,6 +255,23 @@ def test_download_media_validates_args(tmp_path: Path):
         )
 
 
+@pytest.mark.parametrize("rel", ["x.wav", "./out/x.wav", "../x.wav"])
+def test_download_media_rejects_relative_out_path(rel):
+    http = _FakeHTTP({}, "")
+    with pytest.raises(MediaError, match="out_path must be an absolute path"):
+        asyncio.run(media.download_media(http, MANIFEST_URL, rel))
+
+
+def test_download_media_rejects_relative_tmp_root(tmp_path: Path):
+    http = _FakeHTTP({}, "")
+    with pytest.raises(MediaError, match="tmp_root must be an absolute path"):
+        asyncio.run(
+            media.download_media(
+                http, MANIFEST_URL, tmp_path / "x.wav", tmp_root="scratch"
+            )
+        )
+
+
 def test_fill_template_identifiers_and_formats():
     rep = {"id": "1500000", "bandwidth": 1500000}
     assert fill_template("init-$RepresentationID$.webm", rep) == "init-1500000.webm"

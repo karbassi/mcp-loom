@@ -147,6 +147,30 @@ Or reference it from any MCP client:
 
 </details>
 
+### Shared HTTP server
+
+By default every client starts its own stdio process. To run one long-lived server that many clients share:
+
+```bash
+LOOM_COOKIE="connect.sid=s%3A..." LOOM_MCP_TRANSPORT=http LOOM_MCP_PORT=8505 loom-mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "loom": { "type": "http", "url": "http://127.0.0.1:8505/mcp" }
+  }
+}
+```
+
+The endpoint has **no authentication**: anything that can connect to it can use every tool with your Loom session, including deleting videos. So:
+
+- The server only binds to loopback (`LOOM_MCP_HOST` must be `127.0.0.1`, `localhost`, or `::1`). Any local process can still connect, so only use HTTP mode on a machine where every local user and process is trusted with your Loom account.
+- It always turns on FastMCP's Host/Origin protection, which FastMCP leaves off by default. That check **only** stops DNS-rebinding attacks from web pages. It does not authenticate anyone.
+- To reach it from another machine, put it behind a reverse proxy that **controls who can connect**: a bearer token, mTLS, an IP allowlist on a private network, or similar. Then add the proxy's hostname to `FASTMCP_HTTP_ALLOWED_HOSTS`, e.g. `FASTMCP_HTTP_ALLOWED_HOSTS='["mcp.example.com"]'`. If a browser-based client will call it, also add that client's origin to `FASTMCP_HTTP_ALLOWED_ORIGINS`, e.g. `'["https://mcp.example.com"]'`. Never expose the port or the proxy publicly without access control.
+
+File-writing tools (`save_dir` on the read tools, `download_media`) write on **the server's machine**, not the client's, and need absolute paths. See [Saving to disk](#saving-to-disk).
+
 ## Tools
 
 ### Read (31 tools)
@@ -228,7 +252,9 @@ Tools marked with **Save** accept an optional `save_dir` parameter — see [Savi
 
 Most per-video read tools accept an optional `save_dir` parameter. When provided, the tool saves its output to `{save_dir}/{video_id}/` and returns the file path alongside the content. When omitted, nothing is saved.
 
-Just ask naturally — *"get the details from my last meeting and save them to the `ask` directory"* — and the LLM will pass `save_dir="ask"` to the tool.
+`save_dir` (and `download_media`'s `out_path`) must be an absolute path; `~` is expanded. Relative paths are rejected because they would resolve against the server process's working directory, which means nothing for a shared or launchd-managed server.
+
+Just ask naturally — *"get the details from my last meeting and save them to `~/Downloads/loom`"* — and the LLM will pass `save_dir="~/Downloads/loom"` to the tool.
 
 `get_video_details` saves each piece individually (`metadata.json`, `transcript.txt`, `summary.txt`, etc.) plus a combined `details.md`.
 

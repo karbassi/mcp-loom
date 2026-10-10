@@ -397,6 +397,20 @@ def _trim_args(
     return args
 
 
+def absolute_path(value: str | Path, label: str) -> Path:
+    """Expand ``~`` and require an absolute path.
+
+    Relative paths would resolve against the server process's working
+    directory, which for a shared or launchd-managed server is arbitrary.
+    """
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        raise MediaError(
+            f"{label} must be an absolute path (~ is allowed), got {str(value)!r}"
+        )
+    return path
+
+
 async def download_media(
     http: httpx.AsyncClient,
     manifest_url: str,
@@ -421,6 +435,9 @@ async def download_media(
         raise MediaError("start must be >= 0")
     if start is not None and end is not None and end <= start:
         raise MediaError("end must be greater than start")
+    out_path = absolute_path(out_path, "out_path").resolve()
+    if tmp_root is not None:
+        tmp_root = absolute_path(tmp_root, "tmp_root").resolve()
     if not shutil.which("ffmpeg"):
         raise MediaError("ffmpeg not found on PATH; install it (brew install ffmpeg)")
 
@@ -440,7 +457,6 @@ async def download_media(
     if kind == "video" and video is None:
         raise MediaError("DASH manifest has no video track")
 
-    out_path = Path(out_path).expanduser().resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     # Resolve everything that can fail before creating the work directory.
     a_idx: list[int] = []
@@ -456,7 +472,7 @@ async def download_media(
         if not v_idx:
             raise MediaError("Requested time range is outside the recording")
 
-    tmp_parent = Path(tmp_root).expanduser().resolve() if tmp_root else out_path.parent
+    tmp_parent = tmp_root or out_path.parent
     tmp_parent.mkdir(parents=True, exist_ok=True)
     # Unique per call so concurrent downloads (e.g. foo.mp4 and foo.m4a, or the
     # same path twice) never share or delete each other's intermediates.
