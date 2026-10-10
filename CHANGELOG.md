@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Optional shared streamable-HTTP transport: `LOOM_MCP_TRANSPORT=http` (with `LOOM_MCP_HOST` / `LOOM_MCP_PORT`, default `127.0.0.1:8505`) runs one long-lived server many clients share. stdio stays the default. Binds to loopback only and always enables FastMCP's Host/Origin (DNS-rebinding) protection.
 - `download_media` tool: download a video's audio or video to a local file via Loom's signed DASH manifest, including notetaker recordings where MP4 export is disabled. Supports `start`/`end` trimming (only the overlapping segments are fetched) and `quality` selection for video. `.opus`/`.webm`/`.mkv` outputs keep Loom's original Opus/VP9 streams without re-encoding; other extensions are transcoded. Requires `ffmpeg` on PATH.
 - `LoomClient.get_cdn_url` for the raw signed CDN URL (`DASH`, `M3U8`, or `MP4`)
 - GitHub Actions CI workflow (lint, format, test) triggered on push and PRs
@@ -15,6 +16,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Requires FastMCP 4.1
 - Renamed PyPI package from `loom-mcp` to `mcp-loom`
 - Pre-commit hook now auto-formats and re-stages files
 

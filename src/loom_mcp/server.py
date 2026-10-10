@@ -14,6 +14,8 @@ from loom_mcp.client import LoomClient, LoomAPIError
 
 _ID_RE = re.compile(r"\A[a-zA-Z0-9_.\-]{1,200}\Z")
 
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
 
 def _find_project_root() -> Path | None:
     """Walk up from this file to find the directory containing pyproject.toml."""
@@ -1709,8 +1711,28 @@ async def regenerate_mp4(
     return json.dumps(result, indent=2)
 
 
-def main():
-    mcp.run()
+def main() -> None:
+    # stdio by default; set LOOM_MCP_TRANSPORT=http to run one shared server.
+    transport = os.environ.get("LOOM_MCP_TRANSPORT", "stdio")
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+        return
+    if transport != "http":
+        msg = f"LOOM_MCP_TRANSPORT must be 'stdio' or 'http', got {transport!r}"
+        raise SystemExit(msg)
+    host = os.environ.get("LOOM_MCP_HOST", "127.0.0.1")
+    if host not in LOOPBACK_HOSTS:
+        msg = f"LOOM_MCP_HOST must be a loopback address, got {host!r}"
+        raise SystemExit(msg)
+    mcp.run(
+        transport="http",
+        host=host,
+        port=int(os.environ.get("LOOM_MCP_PORT", "8505")),
+        show_banner=False,
+        # FastMCP defaults this off, leaving the server open to DNS rebinding.
+        # Extra trusted hosts/origins come from FASTMCP_HTTP_ALLOWED_HOSTS/_ORIGINS.
+        host_origin_protection=True,
+    )
 
 
 if __name__ == "__main__":
