@@ -147,6 +147,30 @@ Or reference it from any MCP client:
 
 </details>
 
+### Shared HTTP server
+
+By default every client starts its own stdio process. To run one long-lived server that many clients share:
+
+```bash
+LOOM_COOKIE="connect.sid=s%3A..." LOOM_MCP_TRANSPORT=http LOOM_MCP_PORT=8505 loom-mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "loom": { "type": "http", "url": "http://127.0.0.1:8505/mcp" }
+  }
+}
+```
+
+The endpoint has **no authentication**: anything that can connect to it can use every tool with your Loom session, including deleting videos. So:
+
+- The server only binds to loopback (`LOOM_MCP_HOST` must be `127.0.0.1`, `localhost`, or `::1`). Any local process can still connect, so only use HTTP mode on a machine where every local user and process is trusted with your Loom account.
+- It always turns on FastMCP's Host/Origin protection, which FastMCP leaves off by default. That check **only** stops DNS-rebinding attacks from web pages. It does not authenticate anyone.
+- To reach it from another machine, put it behind a reverse proxy that **controls who can connect**: a bearer token, mTLS, an IP allowlist on a private network, or similar. Then add the proxy's hostname to `FASTMCP_HTTP_ALLOWED_HOSTS`, e.g. `FASTMCP_HTTP_ALLOWED_HOSTS='["mcp.example.com"]'`. If a browser-based client will call it, also add that client's origin to `FASTMCP_HTTP_ALLOWED_ORIGINS`, e.g. `'["https://mcp.example.com"]'`. Never expose the port or the proxy publicly without access control.
+
+File-writing tools (`save_dir` on the read tools, `download_media`) write on **the server's machine**, not the client's, and need absolute paths. See [Saving to disk](#saving-to-disk).
+
 ## Tools
 
 ### Read (31 tools)
