@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Breaking:** `save_dir` and `download_media`'s `out_path` must be absolute paths (`~` is expanded). Relative paths are rejected instead of resolving against the server process's working directory.
 - Requires FastMCP 4.1
 - Renamed PyPI package from `loom-mcp` to `mcp-loom`
 - Pre-commit hook now auto-formats and re-stages files

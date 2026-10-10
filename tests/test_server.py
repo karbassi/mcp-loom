@@ -512,3 +512,85 @@ async def test_regenerate_mp4_invalid_id(client):
     )
     assert result.is_error
     assert "Invalid video ID" in result.content[0].text
+
+
+# ---------------------------------------------------------------------------
+# File-writing paths must be absolute (a shared server's cwd is meaningless)
+# ---------------------------------------------------------------------------
+
+
+def _patch_transcript(text="00:00 [Alice] Hello"):
+    return patch(
+        "loom_mcp.server.LoomClient.get_transcript_text",
+        new_callable=AsyncMock,
+        return_value=text,
+    )
+
+
+@pytest.mark.anyio
+async def test_save_dir_absolute_writes_file(client, tmp_path):
+    with _patch_transcript():
+        result = await client.call_tool(
+            "get_transcript", {"video_id": VALID_ID, "save_dir": str(tmp_path)}
+        )
+    saved = tmp_path / VALID_ID / "transcript.txt"
+    assert saved.read_text() == "00:00 [Alice] Hello"
+    assert str(saved) in result.content[0].text
+
+
+@pytest.mark.anyio
+async def test_save_dir_expands_tilde(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with _patch_transcript():
+        await client.call_tool(
+            "get_transcript", {"video_id": VALID_ID, "save_dir": "~/loom"}
+        )
+    assert (tmp_path / "loom" / VALID_ID / "transcript.txt").exists()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("save_dir", ["ask", "./ask", "../ask"])
+async def test_save_dir_rejects_relative_path(client, tmp_path, monkeypatch, save_dir):
+    monkeypatch.chdir(tmp_path)
+    with _patch_transcript():
+        result = await client.call_tool(
+            "get_transcript",
+            {"video_id": VALID_ID, "save_dir": save_dir},
+            raise_on_error=False,
+        )
+    assert result.is_error
+    assert "save_dir must be an absolute path" in result.content[0].text
+    assert list(tmp_path.parent.glob("ask")) == []
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.anyio
+async def test_download_media_rejects_relative_out_path(client, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with patch(
+        "loom_mcp.server.LoomClient.download_media", new_callable=AsyncMock
+    ) as dl:
+        result = await client.call_tool(
+            "download_media",
+            {"video_id": VALID_ID, "out_path": "clip.opus"},
+            raise_on_error=False,
+        )
+    assert result.is_error
+    assert "out_path must be an absolute path" in result.content[0].text
+    dl.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_download_media_expands_tilde_out_path(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    target = tmp_path / "clip.opus"
+    with patch(
+        "loom_mcp.server.LoomClient.download_media",
+        new_callable=AsyncMock,
+        return_value=target,
+    ) as dl:
+        result = await client.call_tool(
+            "download_media", {"video_id": VALID_ID, "out_path": "~/clip.opus"}
+        )
+    assert dl.await_args.args[1] == target
+    assert str(target) in result.content[0].text

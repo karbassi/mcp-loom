@@ -228,7 +228,9 @@ Tools marked with **Save** accept an optional `save_dir` parameter — see [Savi
 
 Most per-video read tools accept an optional `save_dir` parameter. When provided, the tool saves its output to `{save_dir}/{video_id}/` and returns the file path alongside the content. When omitted, nothing is saved.
 
-Just ask naturally — *"get the details from my last meeting and save them to the `ask` directory"* — and the LLM will pass `save_dir="ask"` to the tool.
+`save_dir` (and `download_media`'s `out_path`) must be an absolute path; `~` is expanded. Relative paths are rejected because they would resolve against the server process's working directory, which means nothing for a shared or launchd-managed server.
+
+Just ask naturally — *"get the details from my last meeting and save them to `~/Downloads/loom`"* — and the LLM will pass `save_dir="~/Downloads/loom"` to the tool.
 
 `get_video_details` saves each piece individually (`metadata.json`, `transcript.txt`, `summary.txt`, etc.) plus a combined `details.md`.
 
