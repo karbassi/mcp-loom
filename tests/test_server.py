@@ -123,9 +123,9 @@ async def test_read_tools_are_readonly(client):
         tool = tool_map[name]
         ann = tool.annotations
         assert ann is not None, f"{name} is missing annotations"
-        assert ann.readOnlyHint is True, f"{name} should be readOnlyHint=True"
-        assert ann.destructiveHint is False, f"{name} should be destructiveHint=False"
-        assert ann.idempotentHint is True, f"{name} should be idempotentHint=True"
+        assert ann.read_only_hint is True, f"{name} should be readOnlyHint=True"
+        assert ann.destructive_hint is False, f"{name} should be destructiveHint=False"
+        assert ann.idempotent_hint is True, f"{name} should be idempotentHint=True"
 
 
 @pytest.mark.anyio
@@ -136,8 +136,8 @@ async def test_destructive_tools_are_marked(client):
         tool = tool_map[name]
         ann = tool.annotations
         assert ann is not None, f"{name} is missing annotations"
-        assert ann.readOnlyHint is False, f"{name} should be readOnlyHint=False"
-        assert ann.destructiveHint is True, f"{name} should be destructiveHint=True"
+        assert ann.read_only_hint is False, f"{name} should be readOnlyHint=False"
+        assert ann.destructive_hint is True, f"{name} should be destructiveHint=True"
 
 
 @pytest.mark.anyio
@@ -148,9 +148,9 @@ async def test_create_tools_are_not_destructive(client):
         tool = tool_map[name]
         ann = tool.annotations
         assert ann is not None, f"{name} is missing annotations"
-        assert ann.readOnlyHint is False, f"{name} should be readOnlyHint=False"
-        assert ann.destructiveHint is False, f"{name} should be destructiveHint=False"
-        assert ann.idempotentHint is False, f"{name} should be idempotentHint=False"
+        assert ann.read_only_hint is False, f"{name} should be readOnlyHint=False"
+        assert ann.destructive_hint is False, f"{name} should be destructiveHint=False"
+        assert ann.idempotent_hint is False, f"{name} should be idempotentHint=False"
 
 
 @pytest.mark.anyio
@@ -161,9 +161,9 @@ async def test_idempotent_write_tools(client):
         tool = tool_map[name]
         ann = tool.annotations
         assert ann is not None, f"{name} is missing annotations"
-        assert ann.readOnlyHint is False, f"{name} should be readOnlyHint=False"
-        assert ann.destructiveHint is False, f"{name} should be destructiveHint=False"
-        assert ann.idempotentHint is True, f"{name} should be idempotentHint=True"
+        assert ann.read_only_hint is False, f"{name} should be readOnlyHint=False"
+        assert ann.destructive_hint is False, f"{name} should be destructiveHint=False"
+        assert ann.idempotent_hint is True, f"{name} should be idempotentHint=True"
 
 
 @pytest.mark.anyio

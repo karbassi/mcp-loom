@@ -5,7 +5,7 @@ description = "MCP server for Loom's internal GraphQL API"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
-    "fastmcp>=3.0.0b2",
+    "fastmcp>=4.1.0",
     "httpx>=0.28.1",
 ]
 
